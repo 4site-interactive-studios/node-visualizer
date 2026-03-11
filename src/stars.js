@@ -28,7 +28,14 @@ export function initStars(canvas) {
     }
   }
 
-  function draw() {
+  const FRAME_INTERVAL = 1000 / 24; // ~24fps — twinkling doesn't need 60fps
+  let lastFrame = 0;
+
+  function draw(now) {
+    requestAnimationFrame(draw);
+    if (now - lastFrame < FRAME_INTERVAL) return;
+    lastFrame = now;
+
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, width, height);
@@ -58,13 +65,11 @@ export function initStars(canvas) {
       ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
       ctx.fill();
     }
-
-    requestAnimationFrame(draw);
   }
 
   resize();
   createStars();
-  draw();
+  requestAnimationFrame(draw);
 
   window.addEventListener('resize', () => {
     resize();

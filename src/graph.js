@@ -27,38 +27,8 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     .attr('width', width)
     .attr('height', height);
 
-  // === SVG Defs: filters and clip paths ===
+  // === SVG Defs: clip paths ===
   const defs = svg.append('defs');
-
-  // Glow filter for connection lines
-  const glow = defs.append('filter')
-    .attr('id', 'glow')
-    .attr('x', '-50%').attr('y', '-50%')
-    .attr('width', '200%').attr('height', '200%');
-  glow.append('feGaussianBlur').attr('stdDeviation', '2.5').attr('result', 'blur');
-  const glowMerge = glow.append('feMerge');
-  glowMerge.append('feMergeNode').attr('in', 'blur');
-  glowMerge.append('feMergeNode').attr('in', 'SourceGraphic');
-
-  // Strong glow for selected node
-  const glowStrong = defs.append('filter')
-    .attr('id', 'glow-strong')
-    .attr('x', '-50%').attr('y', '-50%')
-    .attr('width', '200%').attr('height', '200%');
-  glowStrong.append('feGaussianBlur').attr('stdDeviation', '6').attr('result', 'blur');
-  const strongMerge = glowStrong.append('feMerge');
-  strongMerge.append('feMergeNode').attr('in', 'blur');
-  strongMerge.append('feMergeNode').attr('in', 'SourceGraphic');
-
-  // Node glow (subtle halo around each book)
-  const nodeGlow = defs.append('filter')
-    .attr('id', 'node-glow')
-    .attr('x', '-100%').attr('y', '-100%')
-    .attr('width', '300%').attr('height', '300%');
-  nodeGlow.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'blur');
-  const nodeGlowMerge = nodeGlow.append('feMerge');
-  nodeGlowMerge.append('feMergeNode').attr('in', 'blur');
-  nodeGlowMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
   // Circular clip paths for book covers
   books.forEach(book => {
@@ -93,13 +63,33 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
 
   // === Render links ===
   const linkGroup = graphGroup.append('g').attr('class', 'links');
-  const linkElements = linkGroup.selectAll('line')
+  // Soft glow layer — thicker, more transparent strokes behind the sharp lines
+  const linkGlowElements = linkGroup.selectAll('line.link-glow')
     .data(linkData)
     .join('line')
+    .attr('class', 'link-glow')
+    .attr('stroke', d => CONNECTION_COLORS[d.type])
+    .attr('stroke-opacity', d => CONNECTION_OPACITY[d.type] * 0.3)
+    .attr('stroke-width', 4)
+    .attr('stroke-linecap', 'round');
+
+  // Sharp line on top
+  const linkElements = linkGroup.selectAll('line.link-sharp')
+    .data(linkData)
+    .join('line')
+    .attr('class', 'link-sharp')
     .attr('stroke', d => CONNECTION_COLORS[d.type])
     .attr('stroke-opacity', d => CONNECTION_OPACITY[d.type])
-    .attr('stroke-width', 1)
-    .style('filter', 'url(#glow)');
+    .attr('stroke-width', 1);
+
+  // Helper: sync glow layer opacity/visibility with sharp layer
+  function transitionLinkGlow(name, duration, opacityFn) {
+    linkGlowElements
+      .interrupt(name)
+      .transition(name)
+      .duration(duration)
+      .attr('stroke-opacity', l => opacityFn(l) * 0.3);
+  }
 
   // === Render nodes ===
   const nodeGroup = graphGroup.append('g').attr('class', 'nodes');
@@ -109,21 +99,30 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     .attr('class', 'node')
     .style('cursor', 'pointer');
 
-  // Outer glow ring
+  // Outer halo — wider, faint ring for soft glow look (no blur filter)
+  nodeElements.append('circle')
+    .attr('r', NODE_RADIUS + 5)
+    .attr('fill', 'none')
+    .attr('stroke', d => d.coverColor.accent)
+    .attr('stroke-width', 3)
+    .attr('stroke-opacity', 0.12)
+    .attr('pointer-events', 'none');
+
+  // Outer ring — sharp accent border
   nodeElements.append('circle')
     .attr('r', NODE_RADIUS + 2)
     .attr('fill', 'none')
     .attr('stroke', d => d.coverColor.accent)
     .attr('stroke-width', 1)
-    .attr('stroke-opacity', 0.3)
-    .style('filter', 'url(#node-glow)');
+    .attr('stroke-opacity', 0.35)
+    .attr('pointer-events', 'none');
 
-  // Glowing center dot (star point) — behind cover image
+  // Center dot (star point) — behind cover image
   nodeElements.append('circle')
     .attr('r', 2.5)
     .attr('fill', '#fff')
     .attr('opacity', 0.85)
-    .style('filter', 'url(#glow)');
+    .attr('pointer-events', 'none');
 
   // Cover image (clipped to circle)
   nodeElements.append('image')
@@ -172,16 +171,15 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
           return connectedIds.has(n.id) ? 1 : 0.3;
         });
 
-      linkElements
-        .interrupt('hover-link')
-        .transition('hover-link')
-        .duration(150)
-        .attr('stroke-opacity', l => {
+      const hoverLinkOpacity = l => {
           const srcId = typeof l.source === 'object' ? l.source.id : l.source;
           const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
           if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
           return (srcId === d.id || tgtId === d.id) ? 0.7 : 0.08;
-        });
+        };
+      linkElements.interrupt('hover-link').transition('hover-link').duration(150)
+        .attr('stroke-opacity', hoverLinkOpacity);
+      transitionLinkGlow('hover-link', 150, hoverLinkOpacity);
     })
     .on('mouseleave', function () {
       d3.select(this).select('.node-label')
@@ -203,20 +201,25 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
           }
         });
 
-      linkElements
-        .interrupt('hover-link')
-        .transition('hover-link')
-        .duration(300)
-        .attr('stroke-opacity', l => {
+      const restoreLinkOpacity = l => {
           const srcId = typeof l.source === 'object' ? l.source.id : l.source;
           const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
           if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
           return CONNECTION_OPACITY[l.type];
-        });
+        };
+      linkElements.interrupt('hover-link').transition('hover-link').duration(300)
+        .attr('stroke-opacity', restoreLinkOpacity);
+      transitionLinkGlow('hover-link', 300, restoreLinkOpacity);
     });
 
   // === Tick ===
   simulation.on('tick', () => {
+    linkGlowElements
+      .attr('x1', d => d.source.x)
+      .attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x)
+      .attr('y2', d => d.target.y);
+
     linkElements
       .attr('x1', d => d.source.x)
       .attr('y1', d => d.source.y)
@@ -295,19 +298,28 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
       .style('opacity', n => connectedIds.has(n.id) ? 1 : 0.1);
 
     // Highlight connected links
+    const selectLinkOpacity = l => {
+      const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+      const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+      return (srcId === d.id || tgtId === d.id) ? 0.9 : 0.03;
+    };
     linkElements
       .interrupt('highlight')
       .transition('highlight')
       .duration(400)
-      .attr('stroke-opacity', l => {
-        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
-        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
-        return (srcId === d.id || tgtId === d.id) ? 0.9 : 0.03;
-      })
+      .attr('stroke-opacity', selectLinkOpacity)
       .attr('stroke-width', l => {
         const srcId = typeof l.source === 'object' ? l.source.id : l.source;
         const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
         return (srcId === d.id || tgtId === d.id) ? 2 : 0.5;
+      });
+    transitionLinkGlow('highlight', 400, selectLinkOpacity);
+    // Also scale glow widths
+    linkGlowElements.interrupt('highlight-w').transition('highlight-w').duration(400)
+      .attr('stroke-width', l => {
+        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+        return (srcId === d.id || tgtId === d.id) ? 6 : 2;
       });
 
     // Zoom in
@@ -392,17 +404,19 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
       });
 
     // Restore link styles (respect active filter)
+    const restoreOpacity = l => {
+      const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+      const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+      if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
+      return CONNECTION_OPACITY[l.type];
+    };
     linkElements.interrupt('highlight');
-    linkElements
-      .transition('link-restore')
-      .duration(400)
-      .attr('stroke-opacity', l => {
-        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
-        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
-        if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
-        return CONNECTION_OPACITY[l.type];
-      })
+    linkElements.transition('link-restore').duration(400)
+      .attr('stroke-opacity', restoreOpacity)
       .attr('stroke-width', 1);
+    transitionLinkGlow('link-restore', 400, restoreOpacity);
+    linkGlowElements.interrupt('highlight-w').transition('highlight-w').duration(400)
+      .attr('stroke-width', 4);
 
     onNodeDeselect();
   }
@@ -465,16 +479,15 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
       .style('opacity', d => (!filteredIds || filteredIds.has(d.id)) ? 1 : 0.06)
       .style('pointer-events', d => (!filteredIds || filteredIds.has(d.id)) ? 'all' : 'none');
 
-    linkElements
-      .interrupt('filter')
-      .transition('filter')
-      .duration(400)
-      .attr('stroke-opacity', l => {
-        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
-        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
-        if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
-        return CONNECTION_OPACITY[l.type];
-      });
+    const filterLinkOpacity = l => {
+      const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+      const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+      if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
+      return CONNECTION_OPACITY[l.type];
+    };
+    linkElements.interrupt('filter').transition('filter').duration(400)
+      .attr('stroke-opacity', filterLinkOpacity);
+    transitionLinkGlow('filter', 400, filterLinkOpacity);
 
     // Zoom to frame visible nodes
     if (filteredIds) {

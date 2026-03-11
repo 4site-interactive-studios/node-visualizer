@@ -37,6 +37,14 @@ html, body {
   cursor: grabbing;
 }
 
+.graph-layer {
+  will-change: transform;
+}
+
+.links {
+  shape-rendering: geometricPrecision;
+}
+
 /* === Side Panel (glassmorphism) === */
 .panel {
   position: fixed;
