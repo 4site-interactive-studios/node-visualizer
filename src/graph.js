@@ -21,6 +21,7 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
   let width = window.innerWidth;
   let height = window.innerHeight;
   let selectedNode = null;
+  let filteredIds = null; // null = no filter active (show all)
 
   const svg = d3.select(svgElement)
     .attr('width', width)
@@ -117,6 +118,13 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     .attr('stroke-opacity', 0.3)
     .style('filter', 'url(#node-glow)');
 
+  // Glowing center dot (star point) — behind cover image
+  nodeElements.append('circle')
+    .attr('r', 2.5)
+    .attr('fill', '#fff')
+    .attr('opacity', 0.85)
+    .style('filter', 'url(#glow)');
+
   // Cover image (clipped to circle)
   nodeElements.append('image')
     .attr('href', d => coverMap.get(d.id))
@@ -126,13 +134,6 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     .attr('y', -NODE_RADIUS)
     .attr('clip-path', d => `url(#clip-${d.id})`)
     .attr('preserveAspectRatio', 'xMidYMid slice');
-
-  // Glowing center dot (star point)
-  nodeElements.append('circle')
-    .attr('r', 2.5)
-    .attr('fill', '#fff')
-    .attr('opacity', 0.85)
-    .style('filter', 'url(#glow)');
 
   // Invisible hit area for easier clicking
   nodeElements.append('circle')
@@ -151,15 +152,67 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     .attr('opacity', 0)
     .attr('class', 'node-label');
 
-  // Hover: show label
+  // Hover: show label + highlight connected nodes
   nodeElements
-    .on('mouseenter', function () {
+    .on('mouseenter', function (event, d) {
       d3.select(this).select('.node-label')
         .transition().duration(200).attr('opacity', 1);
+
+      if (selectedNode) return;
+      if (filteredIds && !filteredIds.has(d.id)) return;
+
+      const connectedIds = getConnectedIds(d);
+
+      nodeElements
+        .interrupt('hover-dim')
+        .transition('hover-dim')
+        .duration(150)
+        .style('opacity', n => {
+          if (filteredIds && !filteredIds.has(n.id)) return 0.06;
+          return connectedIds.has(n.id) ? 1 : 0.3;
+        });
+
+      linkElements
+        .interrupt('hover-link')
+        .transition('hover-link')
+        .duration(150)
+        .attr('stroke-opacity', l => {
+          const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+          const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+          if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
+          return (srcId === d.id || tgtId === d.id) ? 0.7 : 0.08;
+        });
     })
     .on('mouseleave', function () {
       d3.select(this).select('.node-label')
         .transition().duration(200).attr('opacity', 0);
+
+      if (selectedNode) return;
+
+      nodeElements
+        .interrupt('hover-dim')
+        .transition('hover-dim')
+        .duration(300)
+        .style('opacity', d => {
+          if (filteredIds && !filteredIds.has(d.id)) return 0.06;
+          return 1;
+        })
+        .on('end', function (d) {
+          if (!filteredIds || filteredIds.has(d.id)) {
+            d3.select(this).style('opacity', null);
+          }
+        });
+
+      linkElements
+        .interrupt('hover-link')
+        .transition('hover-link')
+        .duration(300)
+        .attr('stroke-opacity', l => {
+          const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+          const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+          if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
+          return CONNECTION_OPACITY[l.type];
+        });
     });
 
   // === Tick ===
@@ -188,9 +241,9 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
 
   function zoomToNode(node) {
     const scale = 2.5;
-    const panelOffset = selectedNode ? PANEL_WIDTH / 2 : 0;
+    const availableWidth = selectedNode ? width - PANEL_WIDTH : width;
     const transform = d3.zoomIdentity
-      .translate((width - panelOffset) / 2, height / 2)
+      .translate(availableWidth / 2, height / 2)
       .scale(scale)
       .translate(-node.x, -node.y);
 
@@ -288,32 +341,67 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     if (!selectedNode) return;
     selectedNode = null;
 
-    // Reset zoom immediately to sync D3 internal state, then animate visually
+    // Animate zoom out (filter-aware: zoom to fit filtered nodes, or reset to identity)
     svg.interrupt('zoom');
-    const currentTransform = d3.zoomTransform(svg.node());
-    // Only animate if actually zoomed in
-    if (currentTransform.k !== 1 || currentTransform.x !== 0 || currentTransform.y !== 0) {
-      // Use a two-step approach: set up the animated transition on the graphGroup,
-      // then immediately reset D3's zoom state
-      graphGroup.transition('zoom-reset')
-        .duration(750)
-        .ease(d3.easeCubicInOut)
-        .attr('transform', 'translate(0,0) scale(1)');
-      // Sync D3's internal zoom state immediately (no visual transition — graphGroup handles that)
-      svg.property('__zoom', d3.zoomIdentity);
+    if (filteredIds) {
+      const visibleBooks = books.filter(b => filteredIds.has(b.id));
+      if (visibleBooks.length > 0) {
+        const padding = 80;
+        const xExtent = d3.extent(visibleBooks, d => d.x);
+        const yExtent = d3.extent(visibleBooks, d => d.y);
+        const bboxW = (xExtent[1] - xExtent[0]) + padding * 2;
+        const bboxH = (yExtent[1] - yExtent[0]) + padding * 2;
+        const cx = (xExtent[0] + xExtent[1]) / 2;
+        const cy = (yExtent[0] + yExtent[1]) / 2;
+        const scale = Math.min(width / bboxW, height / bboxH, 2.5);
+        const transform = d3.zoomIdentity
+          .translate(width / 2, height / 2)
+          .scale(scale)
+          .translate(-cx, -cy);
+        svg.transition('zoom')
+          .duration(750)
+          .ease(d3.easeCubicInOut)
+          .call(zoomBehavior.transform, transform);
+      }
+    } else {
+      const currentTransform = d3.zoomTransform(svg.node());
+      if (currentTransform.k !== 1 || currentTransform.x !== 0 || currentTransform.y !== 0) {
+        graphGroup.transition('zoom-reset')
+          .duration(750)
+          .ease(d3.easeCubicInOut)
+          .attr('transform', 'translate(0,0) scale(1)');
+        svg.property('__zoom', d3.zoomIdentity);
+      }
     }
 
-    // Restore all node opacities
+    // Restore node opacities (respect active filter)
     nodeElements.interrupt('dim');
-    nodeElements.transition('dim').duration(400).style('opacity', 1)
-      .on('end', function() { d3.select(this).style('opacity', null); });
+    nodeElements.transition('dim').duration(400)
+      .style('opacity', d => {
+        if (filteredIds && !filteredIds.has(d.id)) return 0.06;
+        return 1;
+      })
+      .style('pointer-events', d => {
+        if (filteredIds && !filteredIds.has(d.id)) return 'none';
+        return 'all';
+      })
+      .on('end', function(d) {
+        if (!filteredIds || filteredIds.has(d.id)) {
+          d3.select(this).style('opacity', null).style('pointer-events', null);
+        }
+      });
 
-    // Restore all link styles
+    // Restore link styles (respect active filter)
     linkElements.interrupt('highlight');
     linkElements
       .transition('link-restore')
       .duration(400)
-      .attr('stroke-opacity', d => CONNECTION_OPACITY[d.type])
+      .attr('stroke-opacity', l => {
+        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+        if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
+        return CONNECTION_OPACITY[l.type];
+      })
       .attr('stroke-width', 1);
 
     onNodeDeselect();
@@ -364,16 +452,73 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     });
   }
 
-  return { selectNode, deselectNode };
+  // === Filter API ===
+  function applyFilter(visibleIds) {
+    if (selectedNode) return;
+
+    filteredIds = visibleIds.size === books.length ? null : visibleIds;
+
+    nodeElements
+      .interrupt('filter')
+      .transition('filter')
+      .duration(400)
+      .style('opacity', d => (!filteredIds || filteredIds.has(d.id)) ? 1 : 0.06)
+      .style('pointer-events', d => (!filteredIds || filteredIds.has(d.id)) ? 'all' : 'none');
+
+    linkElements
+      .interrupt('filter')
+      .transition('filter')
+      .duration(400)
+      .attr('stroke-opacity', l => {
+        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+        if (filteredIds && (!filteredIds.has(srcId) || !filteredIds.has(tgtId))) return 0;
+        return CONNECTION_OPACITY[l.type];
+      });
+
+    // Zoom to frame visible nodes
+    if (filteredIds) {
+      const visibleBooks = books.filter(b => filteredIds.has(b.id));
+      if (visibleBooks.length > 0) {
+        const padding = 80;
+        const xExtent = d3.extent(visibleBooks, d => d.x);
+        const yExtent = d3.extent(visibleBooks, d => d.y);
+        const bboxW = (xExtent[1] - xExtent[0]) + padding * 2;
+        const bboxH = (yExtent[1] - yExtent[0]) + padding * 2;
+        const cx = (xExtent[0] + xExtent[1]) / 2;
+        const cy = (yExtent[0] + yExtent[1]) / 2;
+        const scale = Math.min(width / bboxW, height / bboxH, 2.5);
+        const transform = d3.zoomIdentity
+          .translate(width / 2, height / 2)
+          .scale(scale)
+          .translate(-cx, -cy);
+
+        svg.transition('zoom')
+          .duration(750)
+          .ease(d3.easeCubicInOut)
+          .call(zoomBehavior.transform, transform);
+      }
+    } else {
+      // No filter — reset zoom to identity
+      svg.transition('zoom')
+        .duration(750)
+        .ease(d3.easeCubicInOut)
+        .call(zoomBehavior.transform, d3.zoomIdentity);
+    }
+  }
+
+  return { selectNode, deselectNode, applyFilter };
 }
 
 // === Cover generator ===
 function generateCover(book) {
   const size = NODE_RADIUS * 2;
+  const dpr = window.devicePixelRatio || 1;
   const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
   const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
 
   // Gradient background
   const gradient = ctx.createLinearGradient(0, 0, size, size);
@@ -397,7 +542,6 @@ function generateCover(book) {
 
   ctx.fillText(line1, size / 2, size / 2 - (line2 ? 5 : 0), size - 4);
   if (line2) {
-    ctx.font = `${Math.round(size * 0.16)}px sans-serif`;
     ctx.fillText(line2, size / 2, size / 2 + 10, size - 4);
   }
 

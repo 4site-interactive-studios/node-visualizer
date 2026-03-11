@@ -24,6 +24,7 @@ export function initPanel() {
 }
 
 export function openPanel(book, nodeConnections, onConnectionClick) {
+  panel.scrollTop = 0;
   coverEl.innerHTML = '';
   coverEl.appendChild(generateLargeCover(book));
 
@@ -52,16 +53,21 @@ export function closePanel() {
 }
 
 function generateLargeCover(book) {
+  const w = 180, h = 240;
+  const dpr = window.devicePixelRatio || 1;
   const canvas = document.createElement('canvas');
-  canvas.width = 180;
-  canvas.height = 240;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
   const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
 
-  const gradient = ctx.createLinearGradient(0, 0, 180, 240);
+  const gradient = ctx.createLinearGradient(0, 0, w, h);
   gradient.addColorStop(0, book.coverColor.primary);
   gradient.addColorStop(1, book.coverColor.secondary);
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 180, 240);
+  ctx.fillRect(0, 0, w, h);
 
   ctx.globalAlpha = 0.1;
   ctx.fillStyle = book.coverColor.accent;

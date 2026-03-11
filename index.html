@@ -10,6 +10,47 @@
   <canvas id="star-canvas"></canvas>
   <svg id="graph-svg"></svg>
 
+  <aside id="filter-panel" class="filter-panel">
+    <div class="filter-header">
+      <button id="filter-toggle" class="filter-toggle">&#9881; Filters</button>
+      <button id="filter-clear" class="filter-clear" aria-label="Clear filters">&times;</button>
+    </div>
+    <div id="filter-body" class="filter-body">
+      <div class="filter-section">
+        <h4 class="filter-heading">Author</h4>
+        <div id="filter-authors" class="filter-options"></div>
+      </div>
+      <div class="filter-section">
+        <h4 class="filter-heading">Genre</h4>
+        <div id="filter-genres" class="filter-options"></div>
+      </div>
+      <div class="filter-section">
+        <h4 class="filter-heading">Rating</h4>
+        <select id="filter-rating" class="filter-select">
+          <option value="all">All Ratings</option>
+          <option value="3">3&#9733; (3.0 – 3.9)</option>
+          <option value="4">4&#9733; (4.0 – 4.9)</option>
+        </select>
+      </div>
+      <div class="filter-section">
+        <h4 class="filter-heading">Year</h4>
+        <select id="filter-year" class="filter-select">
+          <option value="all">All Years</option>
+          <option value="2016">2016</option>
+          <option value="2017">2017</option>
+          <option value="2018">2018</option>
+          <option value="2019">2019</option>
+          <option value="2020">2020</option>
+          <option value="2021">2021</option>
+          <option value="2022">2022</option>
+          <option value="2023">2023</option>
+          <option value="2024">2024</option>
+        </select>
+      </div>
+      <button id="filter-reset" class="filter-reset">Reset All</button>
+    </div>
+  </aside>
+
   <aside id="detail-panel" class="panel">
     <button id="panel-close" aria-label="Close panel">&times;</button>
     <div class="panel-content">
