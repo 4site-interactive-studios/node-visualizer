@@ -59,7 +59,8 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     .velocityDecay(0.3);
 
   // === Graph container (zoom target) ===
-  const graphGroup = svg.append('g').attr('class', 'graph-layer');
+  const graphGroup = svg.append('g').attr('class', 'graph-layer')
+    .attr('opacity', 0); // Start hidden; fade in after layout settles
 
   // === Render links ===
   const linkGroup = graphGroup.append('g').attr('class', 'links');
@@ -93,6 +94,9 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
 
   // === Render nodes ===
   const nodeGroup = graphGroup.append('g').attr('class', 'nodes');
+
+  // Overlay link group — sits above nodes for highlighted links
+  const linkOverlay = graphGroup.append('g').attr('class', 'links-overlay');
   const nodeElements = nodeGroup.selectAll('g.node')
     .data(books)
     .join('g')
@@ -151,6 +155,26 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     .attr('opacity', 0)
     .attr('class', 'node-label');
 
+  // Move highlighted links above nodes; restore when done
+  function promoteLinks(nodeId) {
+    linkGlowElements.each(function (l) {
+      const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+      const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+      if (srcId === nodeId || tgtId === nodeId) linkOverlay.node().appendChild(this);
+    });
+    linkElements.each(function (l) {
+      const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+      const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+      if (srcId === nodeId || tgtId === nodeId) linkOverlay.node().appendChild(this);
+    });
+  }
+  function demoteLinks() {
+    // Move all lines back into the normal link group
+    linkOverlay.selectAll('line').each(function () {
+      linkGroup.node().appendChild(this);
+    });
+  }
+
   // Hover: show label + highlight connected nodes
   nodeElements
     .on('mouseenter', function (event, d) {
@@ -161,6 +185,7 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
       if (filteredIds && !filteredIds.has(d.id)) return;
 
       const connectedIds = getConnectedIds(d);
+      promoteLinks(d.id);
 
       nodeElements
         .interrupt('hover-dim')
@@ -186,6 +211,7 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
         .transition().duration(200).attr('opacity', 0);
 
       if (selectedNode) return;
+      demoteLinks();
 
       nodeElements
         .interrupt('hover-dim')
@@ -229,6 +255,18 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
     nodeElements
       .attr('transform', d => `translate(${d.x}, ${d.y})`);
   });
+
+  // === Pre-settle layout (prevents visible jumbling on load) ===
+  simulation.stop();
+  simulation.tick(300);   // Synchronously compute ~300 iterations
+  simulation.alpha(0.05); // Very low energy — gentle drift only
+  simulation.restart();
+
+  // Fade the settled constellation in
+  graphGroup.transition('reveal')
+    .duration(800)
+    .ease(d3.easeCubicOut)
+    .attr('opacity', 1);
 
   // === Zoom & Pan ===
   const zoomBehavior = d3.zoom()
@@ -286,9 +324,11 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
 
   function selectNode(d) {
     if (selectedNode && selectedNode.id === d.id) return;
+    demoteLinks(); // Return any previously promoted links
     selectedNode = d;
 
     const connectedIds = getConnectedIds(d);
+    promoteLinks(d.id);
 
     // Dim non-connected nodes
     nodeElements
@@ -352,6 +392,7 @@ export function initGraph(svgElement, books, connections, { onNodeSelect, onNode
   function deselectNode() {
     if (!selectedNode) return;
     selectedNode = null;
+    demoteLinks();
 
     // Animate zoom out (filter-aware: zoom to fit filtered nodes, or reset to identity)
     svg.interrupt('zoom');
