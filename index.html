@@ -36,15 +36,6 @@
         <h4 class="filter-heading">Year</h4>
         <select id="filter-year" class="filter-select">
           <option value="all">All Years</option>
-          <option value="2016">2016</option>
-          <option value="2017">2017</option>
-          <option value="2018">2018</option>
-          <option value="2019">2019</option>
-          <option value="2020">2020</option>
-          <option value="2021">2021</option>
-          <option value="2022">2022</option>
-          <option value="2023">2023</option>
-          <option value="2024">2024</option>
         </select>
       </div>
       <button id="filter-reset" class="filter-reset">Reset All</button>
@@ -67,6 +58,12 @@
       <ul id="panel-connections"></ul>
     </div>
   </aside>
+
+  <div class="zoom-controls">
+    <button id="zoom-in" aria-label="Zoom in">+</button>
+    <button id="zoom-reset" aria-label="Reset zoom">⊡</button>
+    <button id="zoom-out" aria-label="Zoom out">−</button>
+  </div>
 
   <script type="module" src="./src/main.js"></script>
 </body>

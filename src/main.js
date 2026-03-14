@@ -26,6 +26,15 @@ const filterClearBtn = document.getElementById('filter-clear');
 // Derive filter options from data
 const authors = [...new Set(books.map(b => b.author))].sort();
 const genres = [...new Set(books.map(b => b.genre))].sort();
+const years = [...new Set(books.map(b => b.year))].sort();
+
+// Populate year dropdown dynamically
+years.forEach(y => {
+  const opt = document.createElement('option');
+  opt.value = y;
+  opt.textContent = y;
+  filterYearEl.appendChild(opt);
+});
 
 // Filter state
 const filterState = {
